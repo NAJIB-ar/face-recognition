@@ -30,4 +30,4 @@ temp_stream.jpg
 Thumbs.db
 
 # Cache embedding DeepFace
-dataset_wajah/representations_*.pkl
+dataset_wajah/*.pkl

@@ -1,3 +1,16 @@
+"""
+attendance.py
+Modul absensi real-time berbasis wajah.
+
+Alur:
+1. Kamera aktif terus-menerus.
+2. YOLO mendeteksi wajah tiap frame.
+3. Wajah yang terdeteksi dicocokkan ke database (dataset_wajah/) via DeepFace.
+4. Jika dikenali DAN belum melewati cooldown -> catat absen ke logs/absensi.csv.
+5. Jika sudah absen dalam cooldown/hari ini -> tampilkan status "Sudah absen", tidak dobel catat.
+6. Jika tidak dikenali -> tampilkan "Tidak Dikenal", tidak dicatat.
+"""
+
 import os
 import csv
 import time
@@ -88,6 +101,7 @@ def recognize_face(face_crop_path: str):
             db_path=config.DATASET_DIR,
             model_name=config.DEEPFACE_MODEL_NAME,
             distance_metric=config.DEEPFACE_DISTANCE_METRIC,
+            detector_backend="skip",
             enforce_detection=False,
             silent=True,
         )
@@ -95,18 +109,21 @@ def recognize_face(face_crop_path: str):
         return None, None
 
     if len(dfs) == 0 or dfs[0].empty:
+        print("[DEBUG] Tidak ada kandidat sama sekali dari DeepFace.find (database kosong atau tidak ada hasil).")
         return None, None
 
     best_match = dfs[0].iloc[0]
     distance_col = [c for c in best_match.index if "distance" in c.lower()]
     distance = best_match[distance_col[0]] if distance_col else None
 
+    identity_path = best_match["identity"]
+    candidate_name = os.path.basename(os.path.dirname(identity_path))
+    print(f"[DEBUG] Kandidat terdekat: {candidate_name} | distance: {distance} | threshold: {config.DEEPFACE_THRESHOLD}")
+
     if distance is not None and distance > config.DEEPFACE_THRESHOLD:
         return None, distance  # terlalu jauh, anggap tidak dikenal
 
-    identity_path = best_match["identity"]
-    # identity_path formatnya: dataset_wajah/<nama>/<file>.jpg -> ambil nama foldernya
-    name = os.path.basename(os.path.dirname(identity_path))
+    name = candidate_name
     return name, distance
 
 
@@ -142,6 +159,7 @@ def run_attendance():
                 db_path=config.DATASET_DIR,
                 model_name=config.DEEPFACE_MODEL_NAME,
                 distance_metric=config.DEEPFACE_DISTANCE_METRIC,
+                detector_backend="skip",
                 enforce_detection=False,
                 silent=True,
             )
