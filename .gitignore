@@ -1,0 +1,33 @@
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Model besar (opsional - lihat catatan di bawah)
+models/*.pt
+
+# Data wajah & log (opsional - lihat catatan di bawah)
+dataset_wajah/*
+!dataset_wajah/.gitkeep
+logs/*.csv
+
+# File sementara sistem
+temp_face.jpg
+test_kamera.jpg
+temp_recognize.jpg
+temp_stream.jpg
+
+# VSCode
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache embedding DeepFace
+dataset_wajah/representations_*.pkl
