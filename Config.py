@@ -1,3 +1,9 @@
+"""
+config.py
+Konfigurasi terpusat untuk sistem absensi wajah.
+Ubah nilai di sini untuk menyesuaikan perilaku sistem tanpa mengedit kode lain.
+"""
+
 import os
 
 # ── Path & Direktori ─────────────────────────────────────────────
@@ -18,6 +24,10 @@ FRAME_HEIGHT = 480
 # ── Registrasi Wajah ─────────────────────────────────────────────
 PHOTOS_PER_PERSON = 5     # jumlah foto yang diambil saat registrasi (variasi sudut/ekspresi)
 CAPTURE_DELAY_SEC = 1.0   # jeda antar foto saat registrasi (beri waktu ubah pose)
+
+# ── Deteksi Wajah (YOLO) ──────────────────────────────────────────
+YOLO_CONFIDENCE = 0.25   # turunkan (misal 0.15) jika wajah susah terdeteksi,
+                         # naikkan jika terlalu banyak deteksi salah (false positive)
 
 # ── Pengenalan Wajah (DeepFace) ───────────────────────────────────
 DEEPFACE_MODEL_NAME = "Facenet"     # model embedding wajah

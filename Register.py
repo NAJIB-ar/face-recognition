@@ -1,16 +1,3 @@
-"""
-register.py
-Modul registrasi wajah baru.
-
-Alur:
-1. User memasukkan nama.
-2. Nama disanitasi -> jadi nama folder di dataset_wajah/.
-3. Kamera aktif, YOLO mendeteksi wajah secara live.
-4. Sistem otomatis mengambil beberapa foto (jumlah diatur di config.PHOTOS_PER_PERSON)
-   HANYA saat wajah terdeteksi jelas, dengan jeda antar foto agar user bisa ganti pose.
-5. Setelah selesai, cache embedding DeepFace dihapus supaya wajah baru langsung dikenali.
-"""
-
 import os
 import time
 import cv2
@@ -68,7 +55,7 @@ def register_new_face(model_yolo: YOLO):
             print("Gagal membaca frame dari kamera.")
             break
 
-        results = model_yolo(frame, verbose=False)
+        results = model_yolo(frame, verbose=False, conf=config.YOLO_CONFIDENCE)
         boxes = results[0].boxes.xyxy.cpu().numpy()
 
         display_frame = frame.copy()

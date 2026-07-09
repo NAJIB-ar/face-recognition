@@ -1,16 +1,3 @@
-"""
-attendance.py
-Modul absensi real-time berbasis wajah.
-
-Alur:
-1. Kamera aktif terus-menerus.
-2. YOLO mendeteksi wajah tiap frame.
-3. Wajah yang terdeteksi dicocokkan ke database (dataset_wajah/) via DeepFace.
-4. Jika dikenali DAN belum melewati cooldown -> catat absen ke logs/absensi.csv.
-5. Jika sudah absen dalam cooldown/hari ini -> tampilkan status "Sudah absen", tidak dobel catat.
-6. Jika tidak dikenali -> tampilkan "Tidak Dikenal", tidak dicatat.
-"""
-
 import os
 import csv
 import time
@@ -180,7 +167,7 @@ def run_attendance():
             print("Gagal membaca frame dari kamera.")
             break
 
-        results = model_yolo(frame, verbose=False)
+        results = model_yolo(frame, verbose=False, conf=config.YOLO_CONFIDENCE)
         boxes = results[0].boxes.xyxy.cpu().numpy()
 
         for box in boxes:

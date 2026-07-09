@@ -60,14 +60,19 @@ def person_exists(name: str) -> bool:
 
 def clear_deepface_cache():
     """
-    Hapus file cache embedding (.pkl) yang dibuat DeepFace di dalam DATASET_DIR.
+    Hapus semua file cache embedding (.pkl) yang dibuat DeepFace di dalam DATASET_DIR.
     Wajib dipanggil setelah registrasi wajah baru, agar DeepFace membangun ulang
     representasi embedding dan orang baru langsung bisa dikenali.
+
+    Catatan: format nama file cache DeepFace berbeda-beda tergantung versi library
+    (contoh lama: representations_facenet.pkl,
+     contoh baru: ds_model_facenet_detector_opencv_aligned_normalization_base_expand_0.pkl),
+    jadi di sini kita hapus SEMUA file .pkl di dalam DATASET_DIR, bukan cuma yang match satu pola nama.
     """
     if not os.path.isdir(config.DATASET_DIR):
         return
     for fname in os.listdir(config.DATASET_DIR):
-        if fname.startswith("representations_") and fname.endswith(".pkl"):
+        if fname.endswith(".pkl"):
             try:
                 os.remove(os.path.join(config.DATASET_DIR, fname))
                 print(f"Cache embedding lama dihapus: {fname}")
