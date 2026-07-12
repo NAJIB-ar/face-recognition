@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timedelta
 
 import cv2
+import mediapipe as mp
 from ultralytics import YOLO
 from deepface import DeepFace
 
@@ -14,8 +15,7 @@ import utils
 def load_last_attendance() -> dict:
     """
     Baca log absensi yang sudah ada, kembalikan dict {nama: datetime_terakhir_absen}.
-    Dipakai untuk menerapkan cooldown & aturan 1x per hari sejak awal program dijalankan
-    (bukan cuma selama sesi berjalan).
+    Dipakai untuk menerapkan cooldown & aturan 1x per hari sejak program dijalankan
     """
     last_seen = {}
     if not os.path.exists(config.ATTENDANCE_LOG_CSV):
@@ -35,7 +35,7 @@ def load_last_attendance() -> dict:
 
 
 def init_log_file():
-    """Buat file CSV log absensi dengan header jika belum ada."""
+    # create file CSV log absensi
     utils.ensure_dirs()
     if not os.path.exists(config.ATTENDANCE_LOG_CSV):
         with open(config.ATTENDANCE_LOG_CSV, "w", newline="", encoding="utf-8") as f:
@@ -44,10 +44,7 @@ def init_log_file():
 
 
 def can_log_attendance(name: str, last_seen: dict) -> bool:
-    """
-    Tentukan apakah orang ini boleh dicatat absen sekarang,
-    berdasarkan aturan cooldown & one-absen-per-hari di config.py.
-    """
+    # aturan cooldown & one-absen-per-hari di config.py.
     if name not in last_seen:
         return True
 
@@ -64,7 +61,7 @@ def can_log_attendance(name: str, last_seen: dict) -> bool:
 
 
 def log_attendance(name: str):
-    """Tulis satu baris record absensi ke CSV."""
+    # Tulis satu baris record absensi ke CSV
     now = datetime.now()
     with open(config.ATTENDANCE_LOG_CSV, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -78,10 +75,7 @@ def log_attendance(name: str):
 
 
 def recognize_face(face_crop_path: str):
-    """
-    Cocokkan satu crop wajah ke database menggunakan DeepFace.
-    Return: (nama_dikenali atau None, jarak_kemiripan atau None)
-    """
+    # Cocokkan wajah ke database menggunakan DeepFace.
     try:
         dfs = DeepFace.find(
             img_path=face_crop_path,
@@ -162,6 +156,24 @@ def run_attendance():
         print("Gagal membuka kamera. Periksa CAMERA_INDEX di config.py.")
         return
 
+    # Inisialisasi model MediaPipe Face Landmarker (Tasks API) untuk Liveness Detection
+    landmarker_model_path = utils.ensure_face_landmarker_model()
+    BaseOptions = mp.tasks.BaseOptions
+    FaceLandmarker = mp.tasks.vision.FaceLandmarker
+    FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
+    VisionRunningMode = mp.tasks.vision.RunningMode
+
+    options = FaceLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=landmarker_model_path),
+        running_mode=VisionRunningMode.IMAGE,
+        num_faces=10)
+    
+    face_landmarker = FaceLandmarker.create_from_options(options)
+
+    
+    # State melacak status kedipan tiap orang: {nama: {"eye_closed": False, "blinked": False}}
+    blink_states = {}
+
     print("Sistem absensi berjalan. Tunjukkan wajah ke kamera. Tekan 'q' untuk keluar.\n")
 
     temp_crop_path = os.path.join(config.BASE_DIR if hasattr(config, "BASE_DIR") else ".", "temp_face.jpg")
@@ -172,6 +184,30 @@ def run_attendance():
             print("Gagal membaca frame dari kamera.")
             break
 
+        # =========================================================================
+        # PROSES MEDIAPIPE FACE MESH (Untuk mencari landmark kelopak mata)
+        # =========================================================================
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+        mesh_results = face_landmarker.detect(mp_image)
+        
+        # Simpan nilai EAR untuk setiap wajah yang terdeteksi oleh MediaPipe
+        mesh_ears = []
+        if mesh_results.face_landmarks:
+            for landmarks in mesh_results.face_landmarks:
+                ear = utils.get_ear_from_landmarks(landmarks, frame.shape[1], frame.shape[0])
+                
+                # Cari pusat koordinat wajah dari MediaPipe (untuk dicocokkan dengan YOLO nanti)
+                x_coords = [lm.x * frame.shape[1] for lm in landmarks]
+                y_coords = [lm.y * frame.shape[0] for lm in landmarks]
+
+                center_x = sum(x_coords) / len(x_coords)
+                center_y = sum(y_coords) / len(y_coords)
+                mesh_ears.append({"center": (center_x, center_y), "ear": ear})
+
+        # =========================================================================
+        # PROSES YOLO FACE DETECTION
+        # =========================================================================
         results = model_yolo(frame, verbose=False, conf=config.YOLO_CONFIDENCE)
         boxes = results[0].boxes.xyxy.cpu().numpy()
 
@@ -188,14 +224,44 @@ def run_attendance():
             if face_crop.size != 0:
                 cv2.imwrite(temp_crop_path, face_crop)
                 name, distance = recognize_face(temp_crop_path)
+                
+                # Cari nilai EAR yang cocok untuk wajah ini (berdasarkan posisi tengah/center wajah)
+                current_ear = None
+                for mesh in mesh_ears:
+                    # Jika pusat wajah MediaPipe berada di dalam area kotak YOLO ini
+                    if x1 <= mesh["center"][0] <= x2 and y1 <= mesh["center"][1] <= y2:
+                        current_ear = mesh["ear"]
+                        break
 
                 if name:
-                    color = config.BOX_COLOR_KNOWN
                     if can_log_attendance(name, last_seen):
-                        log_attendance(name)
-                        last_seen[name] = datetime.now()
-                        label = f"{name} (Absen OK)"
+                        # Inisialisasi state kedipan orang ini jika belum ada
+                        if name not in blink_states:
+                            blink_states[name] = {"eye_closed": False, "blinked": False}
+                            
+                        # Logika mendeteksi kedipan mata (EAR drop)
+                        if current_ear is not None:
+                            if current_ear < config.EAR_THRESHOLD:
+                                blink_states[name]["eye_closed"] = True
+                            elif current_ear > config.EAR_THRESHOLD and blink_states[name]["eye_closed"]:
+                                blink_states[name]["blinked"] = True
+                                blink_states[name]["eye_closed"] = False
+                                
+                        if blink_states[name]["blinked"]:
+                            # Syarat terpenuhi: Wajah asli + Berkedip -> Catat absen
+                            log_attendance(name)
+                            last_seen[name] = datetime.now()
+                            label = f"{name} (Absen OK)"
+                            color = config.BOX_COLOR_KNOWN
+                            
+                            # Reset status agar siap untuk sesi berikutnya
+                            blink_states[name]["blinked"] = False 
+                        else:
+                            # Minta user untuk berkedip sebagai bukti liveness
+                            label = f"{name} (Berkedip utk Absen)"
+                            color = (0, 255, 255) # Warna kuning (BGR) untuk peringatan / intruksi
                     else:
+                        color = config.BOX_COLOR_KNOWN
                         label = f"{name} (Sudah absen)"
 
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)

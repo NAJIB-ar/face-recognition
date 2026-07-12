@@ -8,10 +8,10 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Model besar (opsional - lihat catatan di bawah)
+# Model besar
 models/*.pt
 
-# Data wajah & log (opsional - lihat catatan di bawah)
+# Data wajah & log
 dataset_wajah/*
 !dataset_wajah/.gitkeep
 logs/*.csv
